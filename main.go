@@ -61,7 +61,7 @@ type Check struct {
 var Cooldowns = make(map[string]int)
 var OpenInvoices = make(map[string]bool)
 var client http.Client
-
+var registeredCommands = make([]*discordgo.ApplicationCommand, len(commands))
 func GenerateInvoice(amount interface{}) (error, *Data) {
 	dateBytes := []byte(`{
        "name": "Liquid Gen",
@@ -96,7 +96,7 @@ func init() {
 	os.Setenv("APIKEY", "ce6b508c-3ca5-43f2-a36a-c5bede4c5d74") // go to line 87 and edit there too
 	os.Setenv("NAME", "Liquid Gen")
 	var err error
-	s, err = discordgo.New("Bot ODQ1MDI4ODA2OTA5MTAwMDcy.YKbAZw.TvR9kScut0ers2rE0rEUK1UUsNQ")
+	s, err = discordgo.New("Bot ODQ1MDI4ODA2OTA5MTAwMDcy.YKbAZw.aTwDJvkRjnQkmXrh3loRUAioA1w")
 	if err != nil {
 		log.Fatalf("Invalid bot parameters: %v", err)
 	}
@@ -206,16 +206,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("Cannot open the session: %v", err)
 	}
-
 	log.Println("Adding commands...")
-	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
-	for i, v := range commands {
-		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, s.State.Guilds[0].ID, v)
-		if err != nil {
-			log.Panicf("Cannot create '%v' command: %v", v.Name, err)
+	for _,b := range s.State.Guilds {
+		for i, v := range commands {
+			cmd, err := s.ApplicationCommandCreate(s.State.User.ID, b.ID, v)
+			if err != nil {
+				log.Panicf("Cannot create '%v' command: %v", v.Name, err)
+			}
+			log.Println("Added command: " + v.Name+" to "+b.Name)
+			registeredCommands[i] = cmd
 		}
-		registeredCommands[i] = cmd
 	}
+
 
 	defer s.Close()
 
@@ -227,7 +229,7 @@ func main() {
 	for _, v := range registeredCommands {
 		err := s.ApplicationCommandDelete(s.State.User.ID, s.State.Guilds[0].ID, v.ID)
 		if err != nil {
-			log.Panicf("Cannot delete '%v' command: %v", v.Name, err)
+			log.Println("Cannot delete '%v' command: %v", v.Name, err)
 		}
 	}
 
@@ -282,14 +284,7 @@ func SendMessage(i *discordgo.InteractionCreate, Title, Description, Thumbnail s
 
 	}
 }
-func contains(a []string, b string) bool {
-	for _, v := range a {
-		if v == b {
-			return true
-		}
-	}
-	return false
-}
+
 func containsbool(a []bool, b bool) bool {
 	for _, v := range a {
 		if v == b {
@@ -366,14 +361,47 @@ var (
 			Name:        "purchase",
 			Description: "Purchase a permanent upgrade for one discord server",
 		},
+		{
+			Name: "restore-purchase",
+			Description: "Restore a purchase for one discord server",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "id",
+					Description: "The id of the purchase",
+					Type:        discordgo.ApplicationCommandOptionString,
+					Required:    true,
+				},
+				{
+					Name: "guildid",
+					Description: "The id of the guild",
+					Type: discordgo.ApplicationCommandOptionString,
+					Required: true,
+				},
+			},
+		},
 	}
 	handler = map[string]func(*discordgo.Session, *discordgo.InteractionCreate){
+		"restore-purchase": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			dir, _ := os.ReadDir("./")
+
+			for _, v := range dir {
+				if v.Name() == i.GuildID {
+					go func() {
+						OpenInvoices[i.ApplicationCommandData().Options[0].StringValue()] = false
+						_, err := CheckInvoices(s, i.ApplicationCommandData().Options[0].StringValue(), i.ChannelID, i.ApplicationCommandData().Options[1].StringValue())
+						if err != nil {
+							SendMessage(i, "Error", "Error checking for payment", "https://i.imgur.com/qs4QOjF.png")
+						}
+					}()
+				}
+			}
+		},
 		"purchase": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			dir, _ := os.ReadDir("./")
 
 			for _, v := range dir {
 				if v.Name() == i.GuildID {
-					err, d := GenerateInvoice("0.11")
+					err, d := GenerateInvoice("5")
 					if err != nil {
 						SendMessage(i, "Error", "Error generating invoice", "https://i.imgur.com/qs4QOjF.png")
 					}
@@ -393,11 +421,12 @@ var (
 		},
 		"purge": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			dir, _ := os.ReadDir("./")
-
-			for _, v := range dir {
-				if v.Name() == i.GuildID {
-					os.RemoveAll("./" + i.GuildID)
-					SendMessage(i, "Success", "Successfully removed all accounts and data. If you would like to revert please join our support [discord](https://discord.gg/AFeBqCFH8B)", "https://i.imgur.com/I5ttBFi.png")
+			if i.Member.Permissions & discordgo.PermissionAdministrator != 0 {
+				for _, v := range dir {
+					if v.Name() == i.GuildID {
+						os.RemoveAll("./" + i.GuildID)
+						SendMessage(i, "Success", "Successfully removed all accounts and data. If you would like to revert please join our support [discord](https://discord.gg/AFeBqCFH8B)", "https://i.imgur.com/I5ttBFi.png")
+					}
 				}
 			}
 		},
@@ -421,7 +450,7 @@ var (
 						msg += "**" + i + "** | " + strconv.Itoa(v) + "\n"
 					}
 
-					SendMessage(i, "Stock", msg, "https://i.imgur.com/NldSwaZ.png")
+					SendMessage(i, "Stock", msg, "https://i.imgur.com/NldSwaZ.png", true)
 					return
 				}
 			}
@@ -447,7 +476,7 @@ var (
 				SendMessage(i, "Error", "This server has reached maximum capacity. Please contact the owner to purchase premium.", "https://i.imgur.com/qs4QOjF.png")
 				return
 			}
-			if i.Member.Permissions >= discordgo.PermissionAdministrator {
+			if i.Member.Permissions & discordgo.PermissionAdministrator != 0 {
 				url := i.ApplicationCommandData().Options[1].StringValue()
 				typee := i.ApplicationCommandData().Options[0].StringValue()
 				if !strings.Contains(url, "raw") {
@@ -488,6 +517,7 @@ var (
 				SendMessage(i, "Error", "You do not have permission to do this.", "https://i.imgur.com/qs4QOjF.png")
 				return
 			}
+
 		},
 		"gen": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			type Settings struct {
@@ -538,7 +568,7 @@ var (
 					}
 					for _, v := range accs {
 						if v != accs[randomIn] {
-							if _, err := f.WriteString(v + "\n"); err != nil {
+							if _, err := f.WriteString("\n"+v); err != nil {
 								log.Println(err)
 							}
 						}
@@ -558,7 +588,7 @@ var (
 
 		},
 		"config": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			if i.Member.Permissions >= discordgo.PermissionAdministrator {
+			if i.Member.Permissions & discordgo.PermissionAdministrator != 0 {
 				dir, _ := os.ReadDir("./")
 				for _, v := range dir {
 					if v.Name() == i.GuildID {
@@ -613,4 +643,13 @@ func DirSize(path string) (int64, error) {
 	return size, err
 }
 
+func Contains(s []string, obj string) bool {
+	for _,v := range s {
+		if v == obj {
+			return true
+		}
+	}
+	return false
+}
 //Images: https://i.imgur.com/v2n7qPs.png-Ping, https://i.imgur.com/NldSwaZ.png-Info, https://i.imgur.com/qs4QOjF.png-Error, https://i.imgur.com/I5ttBFi.png-Success, https://i.imgur.com/NgxYShD.png-Warning
+//https://cdn.discordapp.com/attachments/954412070986727484/956306455835848764/214707.png

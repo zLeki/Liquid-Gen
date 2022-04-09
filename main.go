@@ -2,9 +2,13 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"github.com/bwmarrin/discordgo"
+	_ "github.com/mattn/go-sqlite3"
+	data "github.com/zLeki/sqlite-wrapper"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -16,7 +20,6 @@ import (
 	"strings"
 	"time"
 )
-
 type Data struct {
 	Data struct {
 		HostedURL   string        `json:"hosted_url"`
@@ -155,35 +158,21 @@ func CheckInvoices(s *discordgo.Session, chargeID, channelID, guildID string) (b
 		}
 		for _, moment := range check.Data.Timeline {
 			if moment.Status == "COMPLETED" {
-				_, err := s.ChannelMessageSendEmbed(channelID, EmbedCreate("Payment confirmed!", "On the "+moment.Payment.Network+" network. At "+moment.Time.String()+", a payment of "+moment.Payment.Value.Amount+" in "+moment.Payment.Value.Currency+" was confirmed!\n\nhttps://chain.so/tx/"+moment.Payment.Value.Currency+"/"+moment.Payment.TransactionID+"\n**You are now premium**", "https://i.imgur.com/NldSwaZ.png"))
+
 				if err != nil {
 					return false, err
 				}
-				type Settings struct {
-					WhitelistedChan string `json:"WhitelistedChan"`
-					Cooldown        int    `json:"Cooldown"`
+				db, _ := sql.Open("sqlite3", "./"+guildID+".db")
+				db.Exec("UPDATE config SET Premium = ? WHERE Premium = ?", 1, 0)
+				x := data.Table(db, "codes")
+				for _,v := range x.Query() {
+					if chargeID == v.Content {
+						s.ChannelMessageSendEmbed(channelID, EmbedCreate("Used code", "This code has already been redeemed.\nIf this is a mistake please contact leki#6796 immediately", "https://i.imgur.com/qs4QOjF.png"))
+						return false, nil
+					}
 				}
-				var data Settings
-				jsonFile, _ := os.Open("./" + guildID + "/data.json")
-				dataBytes, _ := ioutil.ReadAll(jsonFile)
-				err = json.Unmarshal(dataBytes, &data)
-				if err != nil {
-					return false, err
-				}
-				type Data struct {
-					WhitelistedChan string
-					Cooldown        int
-					Premium         bool
-				}
-				data1 := Data{
-					WhitelistedChan: data.WhitelistedChan,
-					Cooldown:        data.Cooldown,
-					Premium:         true,
-				}
-				file, _ := json.MarshalIndent(data1, "", " ")
-
-				_ = ioutil.WriteFile("./"+guildID+"/data.json", file, 0644)
-
+				x.Add(data.Item{Content: chargeID})
+				s.ChannelMessageSendEmbed(channelID, EmbedCreate("Thank you!", "Restore purchase code **"+chargeID+"**!\n\nhttps://chain.so/tx/"+moment.Payment.Value.Currency+"/"+moment.Payment.TransactionID+"\n**You are now premium**", "https://i.imgur.com/NldSwaZ.png"))
 				return true, nil
 			}
 		}
@@ -322,7 +311,7 @@ var (
 				{
 					Name:        "cooldown",
 					Description: "Cooldown in seconds.",
-					Type:        discordgo.ApplicationCommandOptionString,
+					Type:        discordgo.ApplicationCommandOptionInteger,
 					Required:    true,
 				},
 			},
@@ -350,8 +339,16 @@ var (
 			Description: "View the accounts we have",
 		},
 		{
-			Name:        "purge",
-			Description: "This will delete EVERYTHING in your server accounts",
+			Name:        "delete",
+			Description: "This will delete a type of account",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "account",
+					Description: "Disney, hulu, etc.",
+					Required:    true,
+					Type:        discordgo.ApplicationCommandOptionString,
+				},
+			},
 		},
 		{
 			Name:        "invite",
@@ -382,100 +379,64 @@ var (
 	}
 	handler = map[string]func(*discordgo.Session, *discordgo.InteractionCreate){
 		"restore-purchase": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			dir, _ := os.ReadDir("./")
 
-			for _, v := range dir {
-				if v.Name() == i.GuildID {
-					go func() {
-						OpenInvoices[i.ApplicationCommandData().Options[0].StringValue()] = false
-						_, err := CheckInvoices(s, i.ApplicationCommandData().Options[0].StringValue(), i.ChannelID, i.ApplicationCommandData().Options[1].StringValue())
-						if err != nil {
-							SendMessage(i, "Error", "Error checking for payment", "https://i.imgur.com/qs4QOjF.png")
-						}
-					}()
+
+
+			go func() {
+				OpenInvoices[i.ApplicationCommandData().Options[0].StringValue()] = false
+				_, err := CheckInvoices(s, i.ApplicationCommandData().Options[0].StringValue(), i.ChannelID, i.ApplicationCommandData().Options[1].StringValue())
+				if err != nil {
+					SendMessage(i, "Error", "Error checking for payment", "https://i.imgur.com/qs4QOjF.png")
 				}
-			}
+			}()
+
+
 		},
 		"purchase": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			dir, _ := os.ReadDir("./")
 
-			for _, v := range dir {
-				if v.Name() == i.GuildID {
-					err, d := GenerateInvoice("5")
-					if err != nil {
-						SendMessage(i, "Error", "Error generating invoice", "https://i.imgur.com/qs4QOjF.png")
-					}
-					SendMessage(i, "Invoice", ":white_check_mark: Your invoice has been generated successfully.\n"+d.Data.HostedURL+"\n\n**Note:** Only new charges can be successfully canceled. Once payment is detected, charge can no longer be canceled.", "https://i.imgur.com/NldSwaZ.png")
-					go func() {
-						OpenInvoices[d.Data.Code] = false
-						_, err := CheckInvoices(s, d.Data.Code, i.ChannelID, i.GuildID)
-						if err != nil {
-							SendMessage(i, "Error", "Error checking for payment", "https://i.imgur.com/qs4QOjF.png")
-						}
-					}()
-				}
+			err, d := GenerateInvoice("5")
+			if err != nil {
+				SendMessage(i, "Error", "Error generating invoice", "https://i.imgur.com/qs4QOjF.png")
 			}
+			SendMessage(i, "Invoice", ":white_check_mark: Your invoice has been generated successfully.\n"+d.Data.HostedURL+"\n\n**Note:** Only new charges can be successfully canceled. Once payment is detected, charge can no longer be canceled.", "https://i.imgur.com/NldSwaZ.png")
+			go func() {
+				OpenInvoices[d.Data.Code] = false
+				_, err := CheckInvoices(s, d.Data.Code, i.ChannelID, i.GuildID)
+				if err != nil {
+					SendMessage(i, "Error", "Error checking for payment", "https://i.imgur.com/qs4QOjF.png")
+				}
+			}()
+
+
 		},
 		"invite": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			SendMessage(i, "Invite me", "[Click here](https://discord.com/api/oauth2/authorize?client_id=845028806909100072&permissions=8&scope=bot%20applications.commands)", "https://i.imgur.com/I5ttBFi.png", true)
 		},
-		"purge": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			dir, _ := os.ReadDir("./")
+		"delete": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			if i.Member.Permissions & discordgo.PermissionAdministrator != 0 {
-				for _, v := range dir {
-					if v.Name() == i.GuildID {
-						os.RemoveAll("./" + i.GuildID)
-						SendMessage(i, "Success", "Successfully removed all accounts and data. If you would like to revert please join our support [discord](https://discord.gg/AFeBqCFH8B)", "https://i.imgur.com/I5ttBFi.png")
+				db, _ := sql.Open("sqlite3", "./"+i.GuildID+".db")
+				for _,v := range data.ListTables(db) {
+					if v == i.ApplicationCommandData().Options[0].StringValue() {
+						db.Exec("DROP TABLE " + i.ApplicationCommandData().Options[0].StringValue())
+						SendMessage(i, "Success", "Successfully deleted "+i.ApplicationCommandData().Options[0].StringValue(), "https://i.imgur.com/qs4QOjF.png")
 					}
 				}
 			}
 		},
 		"stock": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			dir, _ := os.ReadDir("./")
-
-			for _, v := range dir {
-				if v.Name() == i.GuildID {
-					accountNames := map[string]int{}
-					dir2, _ := os.ReadDir("./" + i.GuildID)
-					for _, b := range dir2 {
-						if !strings.HasSuffix(b.Name(), ".json") {
-							f, _ := os.Open("./" + i.GuildID + "/" + b.Name())
-							dataBytes, _ := ioutil.ReadAll(f)
-							accountNames[b.Name()] = len(strings.Split(string(dataBytes), "\n"))
-						}
-
-					}
-					var msg = ""
-					for i, v := range accountNames {
-						msg += "**" + i + "** | " + strconv.Itoa(v) + "\n"
-					}
-
-					SendMessage(i, "Stock", msg, "https://i.imgur.com/NldSwaZ.png", true)
-					return
+			db, _ := sql.Open("sqlite3", "./"+i.GuildID+".db")
+			accounts := ""
+			for _,v := range data.ListTables(db) {
+				if v != "config" && v != "codes" {
+					x := data.Table(db, v)
+					accounts += "**" + v + "**" + " | " + strconv.Itoa(len(x.Query())) + "\n"
 				}
 			}
-			SendMessage(i, "Error", "Missing directory. Please setup with /config. If this is inccorect please join our support [discord](https://discord.gg/AFeBqCFH8B).", "https://i.imgur.com/qs4QOjF.png")
+			SendMessage(i, "Stock", accounts, "", true)
 
 		},
 		"add-accounts": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			type Settings struct {
-				WhitelistedChan string `json:"WhitelistedChan"`
-				Cooldown        int    `json:"Cooldown"`
-				Premium         bool   `json:"Premium"`
-			}
-			var data Settings
-			jsonFile, _ := os.Open("./" + i.GuildID + "/data.json")
-			dataBytes, _ := ioutil.ReadAll(jsonFile)
-			err := json.Unmarshal(dataBytes, &data)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			bytes, _ := DirSize("./" + i.GuildID)
-			if bytes >= 15000 && data.Premium == false {
-				SendMessage(i, "Error", "This server has reached maximum capacity. Please contact the owner to purchase premium.", "https://i.imgur.com/qs4QOjF.png")
-				return
-			}
+
 			if i.Member.Permissions & discordgo.PermissionAdministrator != 0 {
 				url := i.ApplicationCommandData().Options[1].StringValue()
 				typee := i.ApplicationCommandData().Options[0].StringValue()
@@ -489,28 +450,16 @@ var (
 					return
 				} else {
 					dataBytes, _ := ioutil.ReadAll(req.Body)
-					data := strings.Split(string(dataBytes), "\n")
-					dir, _ := os.ReadDir("./")
+					dat := strings.Split(string(dataBytes), "\n")
+					db, _ := sql.Open("sqlite3", "./"+i.GuildID+".db")
 
-					for _, v := range dir {
-						if v.Name() == i.GuildID {
-
-							f, err := os.OpenFile("./"+i.GuildID+"/"+typee,
-								os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-							if err != nil {
-								log.Println(err)
-							}
-							defer f.Close()
-							for _, v := range data {
-								if _, err := f.WriteString(v + "\n"); err != nil {
-									log.Println(err)
-								}
-							}
-							SendMessage(i, "Success", "Successfully appended "+strconv.Itoa(len(data))+" to stock", "https://i.imgur.com/I5ttBFi.png")
-							return
-						}
+					table := data.Table(db, typee)
+					for _, v := range dat {
+						table.Add(data.Item{
+							Content: v,
+						})
 					}
-					SendMessage(i, "Error", "Missing directory. Please setup with /config. If this is inccorect please join our support [discord](https://discord.gg/AFeBqCFH8B).", "https://i.imgur.com/qs4QOjF.png")
+					SendMessage(i, "Success", "Successfully appended "+strconv.Itoa(len(dat))+" to stock", "https://i.imgur.com/I5ttBFi.png")
 					return
 				}
 			} else {
@@ -520,113 +469,100 @@ var (
 
 		},
 		"gen": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			type Settings struct {
-				WhitelistedChan string `json:"WhitelistedChan"`
-				Cooldown        int    `json:"Cooldown"`
-				Premium         bool   `json:"Premium"`
+			db, _ := sql.Open("sqlite3", "./"+i.GuildID+".db")
+			shit, _ := db.Query("SELECT * FROM config")
+			var ChanID int
+			var Premium int
+			var Cooldown int
+			for shit.Next() {
+				shit.Scan(&ChanID, &Cooldown, &Premium)
 			}
-			var data Settings
-			jsonFile, _ := os.Open("./" + i.GuildID + "/data.json")
-			dataBytes, _ := ioutil.ReadAll(jsonFile)
-			err := json.Unmarshal(dataBytes, &data)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			dir, _ := os.ReadDir("./")
 			bytes, _ := DirSize("./" + i.GuildID)
 			log.Println(Cooldowns[i.Member.User.ID])
 			if Cooldowns[i.Member.User.ID] != 0 {
 				SendMessage(i, "You are on cooldown", "Please try in "+strconv.Itoa(Cooldowns[i.Member.User.ID]), "https://i.imgur.com/qs4QOjF.png", true)
 				return
 			}
-			if bytes >= 15000 && data.Premium == false {
+			if bytes >= 100000 && Premium == 0 {
 				SendMessage(i, "Error", "This server has reached maximum capacity. Please contact the owner to purchase premium.", "https://i.imgur.com/qs4QOjF.png")
 				return
 			}
-			for _, v := range dir {
-				if v.Name() == i.GuildID {
+			fmt.Println(data.ListTables(db))
 
-					if i.ChannelID != data.WhitelistedChan {
-						SendMessage(i, "Error", "You are not in the whitelisted channel.", "https://i.imgur.com/qs4QOjF.png")
-					}
-					accountType := i.ApplicationCommandData().Options[0].StringValue()
-					f, _ := os.Open("./" + i.GuildID + "/" + accountType)
-					data2, _ := ioutil.ReadAll(f)
-					accs := strings.Split(string(data2), "\n")
-					randomIn := rand.Intn(len(accs))
-					if accs[randomIn] == "" {
-						SendMessage(i, "Incorrect name", "The stock could not be found! Please try /stock", "https://i.imgur.com/qs4QOjF.png")
-						return
-					}
-					SendMessage(i, "Success", "Here is your account\n`"+accs[randomIn]+"`", "https://i.imgur.com/I5ttBFi.png", true)
-					os.Truncate("./"+i.GuildID+"/"+accountType, 0)
-					f, err := os.OpenFile("./"+i.GuildID+"/"+accountType,
-						os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-					if err != nil {
-						log.Println(err)
-					}
-					for _, v := range accs {
-						if v != accs[randomIn] {
-							if _, err := f.WriteString("\n"+v); err != nil {
-								log.Println(err)
-							}
-						}
-					}
-
-					Cooldowns[i.Member.User.ID] = data.Cooldown
-					go func() {
-						for a := 0; a < data.Cooldown; a++ {
-							Cooldowns[i.Member.User.ID] -= 1
-							time.Sleep(1 * time.Second)
-						}
-					}()
+			for _,v := range data.ListTables(db) {
+				if v == i.ApplicationCommandData().Options[0].StringValue() {
+					log.Println("Valid account type, proceed")
+				}
+				x := data.Table(db, i.ApplicationCommandData().Options[0].StringValue())
+				accs := x.Query()
+				randomIn := rand.Intn(len(accs))
+				fmt.Println(randomIn, "Generated", accs[randomIn].Content)
+				SendMessage(i, "Success", "Here is your account\n`"+accs[randomIn].Content+"`", "https://i.imgur.com/I5ttBFi.png", true)
+				err := x.Delete(accs[randomIn].ID)
+				if err != nil {
+					log.Println("Failed to delete account")
 					return
 				}
+
+
+
+
+				Cooldowns[i.Member.User.ID] = Cooldown
+				go func() {
+					for a := 0; a < Cooldown; a++ {
+						Cooldowns[i.Member.User.ID] -= 1
+						time.Sleep(1 * time.Second)
+					}
+				}()
+				return
 			}
-			SendMessage(i, "Error", "Missing directory. Please setup with /config. If this is inccorect please join our support [discord](https://discord.gg/AFeBqCFH8B).", "https://i.imgur.com/qs4QOjF.png")
+
+
+			SendMessage(i, "Not exists!", "This account type does not exist", "https://i.imgur.com/qs4QOjF.png")
+			return
+
 
 		},
 		"config": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			if i.Member.Permissions & discordgo.PermissionAdministrator != 0 {
-				dir, _ := os.ReadDir("./")
-				for _, v := range dir {
-					if v.Name() == i.GuildID {
-						SendMessage(i, "Error", "You already have a config. If this is a mistake join the main [discord](https://discord.gg/AFeBqCFH8B).", "https://i.imgur.com/qs4QOjF.png")
+
+				db, _ := sql.Open("sqlite3", "./"+i.GuildID+".db")
+				tables := data.ListTables(db)
+				for _,v := range tables {
+					if v == "config" {
+						SendMessage(i, "Config already exists", "Configuration table already exists.", "https://i.imgur.com/NgxYShD.png")
 						return
 					}
 				}
-				err := os.Mkdir("./"+i.GuildID, 0777)
+				stmp, _ := db.Prepare(`
+				CREATE TABLE IF NOT EXISTS "config" (
+					"WhitelistedChannel"	INTEGER,
+					"Cooldown"	INTEGER,
+					"Premium"	INTEGER
+				);`)
+				_, err := stmp.Exec()
+				chanID, _ := strconv.ParseInt(i.ApplicationCommandData().Options[0].ChannelValue(s).ID, 10, 64)
+				_, err = db.Exec(`
+INSERT INTO config (
+    WhitelistedChannel,
+    Cooldown,
+    Premium
+)
+VALUES
+    (
+       	?,
+     	?,
+     	?
+    );
+`,chanID, i.ApplicationCommandData().Options[1].IntValue(), 0)
 				if err != nil {
-					SendMessage(i, "Error", "There was an error creating a directory for your discord.", "https://i.imgur.com/qs4QOjF.png")
+					log.Println("Error", err)
 					return
 				}
-				type Data struct {
-					WhitelistedChan string
-					Cooldown        int
-					Premium         bool
-				}
-				channelID := i.ApplicationCommandData().Options[0].ChannelValue(s).ID
-				cooldown, err := strconv.Atoi(i.ApplicationCommandData().Options[1].StringValue())
-				if err != nil {
-					SendMessage(i, "Error", "Make sure you use a number and not a string value.", "https://i.imgur.com/qs4QOjF.png")
-					return
-				}
-				data := Data{
-					WhitelistedChan: channelID,
-					Cooldown:        cooldown,
-					Premium:         false,
-				}
-				file, _ := json.MarshalIndent(data, "", " ")
 
-				_ = ioutil.WriteFile("./"+i.GuildID+"/data.json", file, 0644)
-				SendMessage(i, "Success", "Successfully setup your discord.", "https://i.imgur.com/I5ttBFi.png")
-			} else {
-				SendMessage(i, "Error", "You do not have permission to do this.", "https://i.imgur.com/qs4QOjF.png")
-				return
+				SendMessage(i, "Success", "Server configuration setup successfully!", "https://i.imgur.com/I5ttBFi.png")
 			}
-		},
-	}
+		}}
 )
 
 func DirSize(path string) (int64, error) {

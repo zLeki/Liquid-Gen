@@ -81,7 +81,7 @@ func GenerateInvoice(amount interface{}) (error, *Data) {
      }`)
 	req, _ := http.NewRequest("POST", "https://api.commerce.coinbase.com/charges", bytes.NewBuffer(dateBytes))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CC-Api-Key", "ce6b508c-3ca5-43f2-a36a-c5bede4c5d74")
+	req.Header.Set("X-CC-Api-Key", "")
 	req.Header.Set("X-CC-Version", "2018-03-22")
 	resp, _ := client.Do(req)
 	var data Data
@@ -96,10 +96,10 @@ var s *discordgo.Session
 
 func init() { flag.Parse() }
 func init() {
-	os.Setenv("APIKEY", "ce6b508c-3ca5-43f2-a36a-c5bede4c5d74") // go to line 87 and edit there too
+	os.Setenv("APIKEY", "") // go to line 87 and edit there too
 	os.Setenv("NAME", "Liquid Gen")
 	var err error
-	s, err = discordgo.New("Bot ODQ1MDI4ODA2OTA5MTAwMDcy.YKbAZw.aTwDJvkRjnQkmXrh3loRUAioA1w")
+	s, err = discordgo.New("Bot TOKEN")
 	if err != nil {
 		log.Fatalf("Invalid bot parameters: %v", err)
 	}

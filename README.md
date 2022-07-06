@@ -1,6 +1,6 @@
 <p align="center">
 
-[![GitHub stars](https://img.shields.io/github/stars/zLeki/Liquid-Gen?color=FFFFFF&label=stars&style=flat-square)](https://github.com/Schmenn/DiscordGenerator/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/zLeki/Liquid-Gen?color=FFFFFF&label=stars&style=flat-square)](https://github.com/zLeki/Liquid-Gen/stargazers)
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/zLeki/Liquid-Gen?color=FFFFFF&style=flat-square) 
 ![GitHub issues](https://img.shields.io/github/issues/zLeki/Liquid-Gen?color=FFFFFF&style=flat-square)
 [![GitHub forks](https://img.shields.io/github/forks/zLeki/Liquid-Gen?color=FFFFFF&style=flat-square)](https://github.com/zLeki/Liquid-Gen/network)

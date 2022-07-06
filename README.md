@@ -22,7 +22,7 @@ go to [the releases page](https://github.com/zLeki/Liquid-Gen/releases) and down
 ###### make sure you have [Go](https://golang.org) installed and in your path
 1. Clone this repository
     
-    `git clone https://github.com/Strxngy/Discord-Generator`
+    `git clone https://github.com/zLeki/Liquid-Gen`
 
 ###### If you don't have git installed, install it [here](https://git-scm.com) or download the code as a zip
 2. Go into the folder

@@ -81,7 +81,7 @@ func GenerateInvoice(amount interface{}) (error, *Data) {
      }`)
 	req, _ := http.NewRequest("POST", "https://api.commerce.coinbase.com/charges", bytes.NewBuffer(dateBytes))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CC-Api-Key", "")
+	req.Header.Set("X-CC-Api-Key", "ce6b508c-3ca5-43f2-a36a-c5bede4c5d74")
 	req.Header.Set("X-CC-Version", "2018-03-22")
 	resp, _ := client.Do(req)
 	var data Data
@@ -96,7 +96,7 @@ var s *discordgo.Session
 
 func init() { flag.Parse() }
 func init() {
-	os.Setenv("APIKEY", "") // go to line 87 and edit there too
+	os.Setenv("APIKEY", "ce6b508c-3ca5-43f2-a36a-c5bede4c5d74") // go to line 87 and edit there too
 	os.Setenv("NAME", "Liquid Gen")
 	var err error
 	s, err = discordgo.New("Bot TOKEN")
@@ -185,11 +185,12 @@ func main() {
 
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
-		err := s.UpdateStreamingStatus(0, s.State.User.Username+" | /help", "https://www.twitch.tv/amouranth")
+		err := s.UpdateStreamingStatus(0, s.State.User.Username+" | /help | Used by "+strconv.Itoa(len(s.State.Guilds))+" people", "https://www.twitch.tv/amouranth")
 		if err != nil {
 			return
 		}
 	})
+	s.AddHandler(OnJoin)
 	s.Identify.Intents = discordgo.IntentsAll
 	err := s.Open()
 	if err != nil {
@@ -200,7 +201,7 @@ func main() {
 		for i, v := range commands {
 			cmd, err := s.ApplicationCommandCreate(s.State.User.ID, b.ID, v)
 			if err != nil {
-				log.Panicf("Cannot create '%v' command: %v", v.Name, err)
+				log.Printf("Cannot create '%v' command: %v", v.Name, err)
 			}
 			log.Println("Added command: " + v.Name+" to "+b.Name)
 			registeredCommands[i] = cmd
@@ -444,7 +445,10 @@ var (
 					SendMessage(i, "Error", "Invalid url make sure its raw", "https://i.imgur.com/qs4QOjF.png", true)
 					return
 				}
-				req, _ := http.Get(url)
+				req, err := http.Get(url)
+        if err != nil {
+          SendMessage(i, "Error", err.Error(), "https://i.imgur.com/qs4QOjF.png", true);return
+        }
 				if req.StatusCode != 200 {
 					SendMessage(i, "Error", "Invalid url", "https://i.imgur.com/qs4QOjF.png", true)
 					return
@@ -459,67 +463,93 @@ var (
 							Content: v,
 						})
 					}
-					SendMessage(i, "Success", "Successfully appended "+strconv.Itoa(len(dat))+" to stock", "https://i.imgur.com/I5ttBFi.png")
+					SendMessage(i, "Success", "Successfully appended "+strconv.Itoa(len(dat))+" to stock", "https://i.imgur.com/I5ttBFi.png", true)
 					return
 				}
 			} else {
-				SendMessage(i, "Error", "You do not have permission to do this.", "https://i.imgur.com/qs4QOjF.png")
+				SendMessage(i, "Error", "You do not have permission to do this.", "https://i.imgur.com/qs4QOjF.png", true)
 				return
 			}
 
 		},
 		"gen": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-			db, _ := sql.Open("sqlite3", "./"+i.GuildID+".db")
-			shit, _ := db.Query("SELECT * FROM config")
-			var ChanID int
-			var Premium int
-			var Cooldown int
-			for shit.Next() {
-				shit.Scan(&ChanID, &Cooldown, &Premium)
-			}
-			bytes, _ := DirSize("./" + i.GuildID)
-			log.Println(Cooldowns[i.Member.User.ID])
-			if Cooldowns[i.Member.User.ID] != 0 {
-				SendMessage(i, "You are on cooldown", "Please try in "+strconv.Itoa(Cooldowns[i.Member.User.ID]), "https://i.imgur.com/qs4QOjF.png", true)
-				return
-			}
-			if bytes >= 100000 && Premium == 0 {
-				SendMessage(i, "Error", "This server has reached maximum capacity. Please contact the owner to purchase premium.", "https://i.imgur.com/qs4QOjF.png")
-				return
-			}
-			fmt.Println(data.ListTables(db))
+			dir, _ := os.ReadDir("./")
+			for _,v := range dir {
+				if v.Name() == i.GuildID+".db" {
+					db, _ := sql.Open("sqlite3", "./"+i.GuildID+".db")
+					x := data.ListTables(db)
+					for _,v := range x {
+						if v == "config" {
+							if Contains(data.ListTables(db), i.ApplicationCommandData().Options[0].StringValue()) {
+								shit, _ := db.Query("SELECT * FROM config")
+								var ChanID int
+								var Premium int
+								var Cooldown int
+								for shit.Next() {
+									shit.Scan(&ChanID, &Cooldown, &Premium)
+								}
+								if i.ChannelID == strconv.Itoa(ChanID) {
+									file, err := os.Open("./" + i.GuildID + ".db")
+									if err != nil {
+										log.Fatal(err)
+									}
+									fi, err := file.Stat()
+									if err != nil {
+										log.Fatal(err)
+									}
 
-			for _,v := range data.ListTables(db) {
-				if v == i.ApplicationCommandData().Options[0].StringValue() {
-					log.Println("Valid account type, proceed")
-				}
-				x := data.Table(db, i.ApplicationCommandData().Options[0].StringValue())
-				accs := x.Query()
-				randomIn := rand.Intn(len(accs))
-				fmt.Println(randomIn, "Generated", accs[randomIn].Content)
-				SendMessage(i, "Success", "Here is your account\n`"+accs[randomIn].Content+"`", "https://i.imgur.com/I5ttBFi.png", true)
-				err := x.Delete(accs[randomIn].ID)
-				if err != nil {
-					log.Println("Failed to delete account")
+									log.Println(Cooldowns[i.Member.User.ID])
+									if Cooldowns[i.Member.User.ID] != 0 {
+										SendMessage(i, "You are on cooldown", "Please try in "+strconv.Itoa(Cooldowns[i.Member.User.ID]), "https://i.imgur.com/qs4QOjF.png", true)
+										return
+									}
+									if fi.Size() >= 100000 && Premium == 0 {
+										SendMessage(i, "Error", "This server has reached maximum capacity. Please contact the owner to purchase premium.", "https://i.imgur.com/qs4QOjF.png")
+										return
+									}
+									fmt.Println(data.ListTables(db))
+
+									x := data.Table(db, i.ApplicationCommandData().Options[0].StringValue())
+									accs := x.Query()
+									if len(accs) == 0 {
+										SendMessage(i, "Error", "This account type has 0 accounts in it.", "https://i.imgur.com/qs4QOjF.png", true)
+										return
+									}
+									randomIn := rand.Intn(len(accs))
+									fmt.Println(len(accs), randomIn, accs[randomIn].Content)
+									SendMessage(i, "Success", "Here is your account\n`"+accs[randomIn].Content+"`", "https://i.imgur.com/I5ttBFi.png", true)
+									err = x.Delete(accs[randomIn].ID)
+									if err != nil {
+										log.Println("Failed to delete account")
+										return
+									}
+
+									Cooldowns[i.Member.User.ID] = Cooldown
+									go func() {
+										for a := 0; a < Cooldown; a++ {
+											Cooldowns[i.Member.User.ID] -= 1
+											time.Sleep(1 * time.Second)
+										}
+									}()
+									return
+								}else{
+									SendMessage(i, "Error", "Wrong channel.", "https://i.imgur.com/qs4QOjF.png");return
+								}
+							}
+						}
+					}
+
+
+
+
+
+					SendMessage(i, "Not exists!", "This account type does not exist", "https://i.imgur.com/qs4QOjF.png", true)
 					return
 				}
-
-
-
-
-				Cooldowns[i.Member.User.ID] = Cooldown
-				go func() {
-					for a := 0; a < Cooldown; a++ {
-						Cooldowns[i.Member.User.ID] -= 1
-						time.Sleep(1 * time.Second)
-					}
-				}()
-				return
 			}
-
-
-			SendMessage(i, "Not exists!", "This account type does not exist", "https://i.imgur.com/qs4QOjF.png")
+			SendMessage(i, "Config not found", "Please run /config to setup your server!", "https://i.imgur.com/qs4QOjF.png", true)
 			return
+
 
 
 		},
@@ -564,7 +594,16 @@ VALUES
 			}
 		}}
 )
-
+func OnJoin(s *discordgo.Session, g *discordgo.GuildCreate) {
+	for i, v := range commands {
+		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, g.ID, v)
+		if err != nil {
+			log.Printf("Cannot create '%v' command: %v", v.Name, err)
+		}
+		log.Println("Added command: " + v.Name+" to "+g.Name)
+		registeredCommands[i] = cmd
+	}
+}
 func DirSize(path string) (int64, error) {
 	var size int64
 	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {

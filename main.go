@@ -10,6 +10,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	data "github.com/zLeki/sqlite-wrapper"
 	"io/ioutil"
+  "io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -99,7 +100,7 @@ func init() {
 	os.Setenv("APIKEY", "ce6b508c-3ca5-43f2-a36a-c5bede4c5d74") // go to line 87 and edit there too
 	os.Setenv("NAME", "Liquid Gen")
 	var err error
-	s, err = discordgo.New("Bot TOKEN")
+	s, err = discordgo.New("Bot ODQ1MDI4ODA2OTA5MTAwMDcy.G6aTa-.-KwUKgUsD7fkTKCJiCNfguOGIMSdJs1BwEHdtA")
 	if err != nil {
 		log.Fatalf("Invalid bot parameters: %v", err)
 	}
@@ -329,8 +330,8 @@ var (
 				},
 				{
 					Name:        "url",
-					Description: "pastebin, ghostbin, etc. MAKE SURE ITS RAW",
-					Type:        discordgo.ApplicationCommandOptionString,
+					Description: "TXT files only",
+					Type:        discordgo.ApplicationCommandOptionAttachment,
 					Required:    true,
 				},
 			},
@@ -439,22 +440,35 @@ var (
 		"add-accounts": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 			if i.Member.Permissions & discordgo.PermissionAdministrator != 0 {
-				url := i.ApplicationCommandData().Options[1].StringValue()
-				typee := i.ApplicationCommandData().Options[0].StringValue()
-				if !strings.Contains(url, "raw") {
-					SendMessage(i, "Error", "Invalid url make sure its raw", "https://i.imgur.com/qs4QOjF.png", true)
-					return
+        var options = make(map[string]interface{})
+				for _, option := range i.ApplicationCommandData().Options {
+					options[option.Name] = option.Value
 				}
-				req, err := http.Get(url)
+				url := i.ApplicationCommandData().Resolved.Attachments[options["url"].(string)].URL
+				typee := i.ApplicationCommandData().Options[0].StringValue()
+				fileUrl := url
+				err := DownloadFile("./tempText.txt", fileUrl)
+				if err != nil {
+					panic(err)
+				}
+				// open and read file
+				file, err := os.Open("./tempText.txt")
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer func() {
+					if err = file.Close(); err != nil {
+						log.Fatal(err)
+					}
+				}()
+
+				b, err := ioutil.ReadAll(file)
+
         if err != nil {
           SendMessage(i, "Error", err.Error(), "https://i.imgur.com/qs4QOjF.png", true);return
         }
-				if req.StatusCode != 200 {
-					SendMessage(i, "Error", "Invalid url", "https://i.imgur.com/qs4QOjF.png", true)
-					return
-				} else {
-					dataBytes, _ := ioutil.ReadAll(req.Body)
-					dat := strings.Split(string(dataBytes), "\n")
+
+					dat := strings.Split(string(b), "\n")
 					db, _ := sql.Open("sqlite3", "./"+i.GuildID+".db")
 
 					table := data.Table(db, typee)
@@ -465,7 +479,7 @@ var (
 					}
 					SendMessage(i, "Success", "Successfully appended "+strconv.Itoa(len(dat))+" to stock", "https://i.imgur.com/I5ttBFi.png", true)
 					return
-				}
+				
 			} else {
 				SendMessage(i, "Error", "You do not have permission to do this.", "https://i.imgur.com/qs4QOjF.png", true)
 				return
@@ -628,3 +642,23 @@ func Contains(s []string, obj string) bool {
 }
 //Images: https://i.imgur.com/v2n7qPs.png-Ping, https://i.imgur.com/NldSwaZ.png-Info, https://i.imgur.com/qs4QOjF.png-Error, https://i.imgur.com/I5ttBFi.png-Success, https://i.imgur.com/NgxYShD.png-Warning
 //https://cdn.discordapp.com/attachments/954412070986727484/956306455835848764/214707.png
+func DownloadFile(filepath string, url string) error {
+
+	// Get the data
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Create the file
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Write the body to file
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
